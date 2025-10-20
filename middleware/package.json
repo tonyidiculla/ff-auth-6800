@@ -1,0 +1,37 @@
+{
+  "name": "@furfield/auth-middleware",
+  "version": "1.0.0",
+  "description": "Authentication middleware for Furfield microservices",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/node": "^20",
+    "typescript": "^5"
+  },
+  "peerDependencies": {
+    "next": ">=13.0.0"
+  },
+  "keywords": [
+    "authentication",
+    "middleware",
+    "jwt",
+    "furfield",
+    "microservices"
+  ],
+  "author": "Furfield Team",
+  "license": "MIT"
+}
