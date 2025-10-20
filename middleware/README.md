@@ -1,11 +1,15 @@
 # Furfield Authentication Middleware
-# Shared authentication utilities for all Furfield microservices
+# Part of ff-auth-6800 authentication service
 
 This package provides authentication middleware and utilities that can be used across all Furfield microservices to integrate with the central ff-auth-6800 service.
 
 ## Installation
 
 ```bash
+# Install from local path during development
+npm install ../ff-auth-6800/middleware
+
+# Or if published to npm
 npm install @furfield/auth-middleware
 ```
 
