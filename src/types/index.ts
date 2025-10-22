@@ -9,6 +9,7 @@ export interface User {
   createdAt: Date;
   updatedAt: Date;
   lastLoginAt?: Date;
+  avatarUrl?: string;
 }
 
 export interface CreateUserRequest {

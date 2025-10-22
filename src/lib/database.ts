@@ -1,42 +1,172 @@
 import { User, UserRole, CreateUserRequest } from '@/types';
-
-// Mock database - in production, this would be replaced with actual database calls
-let users: (User & { passwordHash: string })[] = [
-  {
-    id: '1',
-    email: 'admin@furfield.com',
-    firstName: 'Admin',
-    lastName: 'User',
-    role: UserRole.ADMIN,
-    isActive: true,
-    emailVerified: true,
-    passwordHash: '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/TDpMjcG6BJ/KZPXWS', // password: admin123
-    createdAt: new Date('2024-01-01'),
-    updatedAt: new Date('2024-01-01'),
-  },
-];
-
-let refreshTokens: { token: string; userId: string; expiresAt: Date }[] = [];
+import { supabaseAdmin } from './supabase';
 
 export class UserService {
   /**
-   * Find user by email
+   * Find user by email using Supabase Auth
    */
   static async findByEmail(email: string): Promise<(User & { passwordHash: string }) | null> {
-    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    return user || null;
+    // Use Supabase Auth to get user
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers();
+    
+    if (authError || !authData) {
+      console.error('Error fetching users from Supabase Auth:', authError);
+      return null;
+    }
+
+    const authUser = authData.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+    
+    if (!authUser) {
+      return null;
+    }
+
+    // Get user profile and role from public schema
+    const { data: profileData, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('user_id', authUser.id)
+      .single();
+    
+    // Get role assignment separately using user_platform_id
+    let roleData = null;
+    if (profileData?.user_platform_id) {
+      const { data: roleAssignment, error: roleError } = await supabaseAdmin
+        .from('user_to_role_assignment')
+        .select(`
+          platform_roles(role_name, display_name, privilege_level)
+        `)
+        .eq('user_platform_id', profileData.user_platform_id)
+        .single();
+      
+      if (roleError) {
+        console.error('🔴 findByEmail - Role query error:', roleError);
+      }
+      
+      roleData = roleAssignment;
+    }
+    
+    // Get avatar URL from storage if avatar_storage path exists
+    let avatarUrl = null;
+    if (profileData?.avatar_storage && typeof profileData.avatar_storage === 'string') {
+      const { data: urlData } = supabaseAdmin.storage
+        .from('avatars')
+        .getPublicUrl(profileData.avatar_storage);
+      avatarUrl = urlData.publicUrl;
+    }
+
+    if (profileError) {
+      console.error('Error fetching profile:', profileError);
+    }
+
+    // Extract role display name from the separate query
+    const platformRole = Array.isArray(roleData?.platform_roles) 
+      ? roleData.platform_roles[0] 
+      : roleData?.platform_roles;
+    const role = platformRole?.display_name || platformRole?.role_name || 'User';
+
+    // Map Supabase Auth user to our User type
+    return {
+      id: authUser.id,
+      email: authUser.email!,
+      firstName: profileData?.first_name || authUser.user_metadata?.firstName || authUser.user_metadata?.first_name || '',
+      lastName: profileData?.last_name || authUser.user_metadata?.lastName || authUser.user_metadata?.last_name || '',
+      role: role as UserRole,
+      isActive: profileData?.is_active ?? true,
+      emailVerified: authUser.email_confirmed_at ? true : false,
+      passwordHash: '', // Supabase handles password hashing internally
+      createdAt: new Date(authUser.created_at),
+      updatedAt: new Date(authUser.updated_at || authUser.created_at),
+      lastLoginAt: authUser.last_sign_in_at ? new Date(authUser.last_sign_in_at) : undefined,
+      avatarUrl: avatarUrl || undefined,
+    };
   }
 
   /**
    * Find user by ID
    */
   static async findById(id: string): Promise<User | null> {
-    const user = users.find(u => u.id === id);
-    if (!user) return null;
-    
-    // Remove password hash from returned user
-    const { passwordHash, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    try {
+      // Use Supabase Auth to get user by ID
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(id);
+      
+      if (authError || !authData.user) {
+        console.error('Error fetching user from Supabase Auth:', authError);
+        return null;
+      }
+
+      const authUser = authData.user;
+
+      // Get user profile from public schema
+      const { data: profileData, error: profileError} = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('user_id', id)
+        .single();
+      
+      // Get role assignment separately using user_platform_id
+      let roleData = null;
+      if (profileData?.user_platform_id) {
+        // Try without explicit FK name first
+        const { data: roleAssignment, error: roleError } = await supabaseAdmin
+          .from('user_to_role_assignment')
+          .select(`
+            platform_roles(role_name, display_name, privilege_level)
+          `)
+          .eq('user_platform_id', profileData.user_platform_id)
+          .single();
+        
+        if (roleError) {
+          console.error('🔴 findById - Role query error:', roleError);
+        }
+        
+        roleData = roleAssignment;
+        console.log('🔍 findById - Role data:', {
+          user_platform_id: profileData.user_platform_id,
+          roleData,
+          roleAssignment
+        });
+      } else {
+        console.log('⚠️  findById - No user_platform_id in profile');
+      }
+      
+      // Get avatar URL from storage if avatar_storage path exists
+      let avatarUrl = null;
+      if (profileData?.avatar_storage && typeof profileData.avatar_storage === 'string') {
+        const { data: urlData } = supabaseAdmin
+          .storage
+          .from('avatars')
+          .getPublicUrl(profileData.avatar_storage);
+        avatarUrl = urlData.publicUrl;
+      }
+
+      if (profileError) {
+        console.error('Error fetching profile:', profileError);
+      }
+
+      // Extract role display name from the separate query
+      const platformRole = Array.isArray(roleData?.platform_roles) 
+        ? roleData.platform_roles[0] 
+        : roleData?.platform_roles;
+      const role = platformRole?.display_name || platformRole?.role_name || 'User';
+
+      // Map Supabase Auth user to our User type
+      return {
+        id: authUser.id,
+        avatarUrl: avatarUrl || undefined,
+        email: authUser.email!,
+        firstName: profileData?.first_name || authUser.user_metadata?.firstName || authUser.user_metadata?.first_name || '',
+        lastName: profileData?.last_name || authUser.user_metadata?.lastName || authUser.user_metadata?.last_name || '',
+        role: role,
+        isActive: profileData?.is_active ?? true,
+        emailVerified: authUser.email_confirmed_at ? true : false,
+        createdAt: new Date(authUser.created_at),
+        updatedAt: new Date(authUser.updated_at || authUser.created_at),
+        lastLoginAt: authUser.last_sign_in_at ? new Date(authUser.last_sign_in_at) : undefined,
+      };
+    } catch (error) {
+      console.error('Error in findById:', error);
+      return null;
+    }
   }
 
   /**

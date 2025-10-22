@@ -26,6 +26,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    console.log('📤 /api/auth/profile returning user with avatarUrl:', user.avatarUrl);
+
     return NextResponse.json({
       success: true,
       data: { user },
